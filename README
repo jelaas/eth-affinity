@@ -1,0 +1,25 @@
+eth-affinity [-hvqstlR] [-r #] [-m #]
+ Version 1.2.3 By Jens Låås, UU 2009-2010.
+ Sets CPU affinity for ethernet devices.
+ Depends on information from sysfs and procfs.
+
+ -v --verbose    Verbose output.
+ -q --quiet      Turn off output.
+ -s --silent     Turn off output including errors.
+ -t --test       Perform dryrun.
+ -l --list       Read and list current affinity.
+ -m --maxcpu N   Maximum nr of CPUs to use.
+                 Excluding reserved CPUs.
+ -r --reserve N  Nr of CPUs to reserve (not use).
+                 Reserves CPU 0-N.
+ -R --no-reserve-mq
+                 Do not reserve CPUs for multiq devices.
+                 Only takes effect when --reserve given.
+ -H --noheur     Disable heuristics.
+                 Perform straight round-robin per device.
+ --reset         Reset affinity to all CPUs.
+ --devices N,..  Only configure these devices.
+ --exclude N,..  Do not configure these devices.
+ --sysdir DIR    [/sys]
+ --irqdir DIR    [/proc/irq]
+
