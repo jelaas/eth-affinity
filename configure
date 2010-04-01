@@ -1,0 +1,397 @@
+#!/bin/bash
+
+VERSION="1.16 2006-02-09 SLU, Jens Låås"
+
+# #? makeline
+# #%subdir dir1 dir2 dir3 # run ./configure in these dirs
+# #%set value VARNAME
+# #%seteval VARNAME eval
+# #%setif VAR equals_value value VARNAME
+# #%setifdef DEFVAR value VARNAME
+# #%setifndef DEFVAR value VARNAME
+# #%search openssl:ssl:openssl/lib
+# #%prep /opt/diet/lib
+# #%prepifdef DEFVAR /opt/diet/lib"
+# #%file libname.a VARNAME [PREFIX]    # hard failure
+# #%dir find_file.h VARNAME [PREFIX]
+# #%tryfile libname.a VARNAME [PREFIX] # soft failure
+# #%trydir find_file.h VARNAME [PREFIX]
+#- #%select value VARNAME va:lu:es # [optionally] interactive selection
+# #%switch --name VARNAME         # set vars value to the value of switch
+# #%warn VARNAME line of text     # print text if VARNAME not set
+# #%ifswitch --name value VARNAME # if switch present set var to value
+# #%ifnswitch --name value VARNAME # if switch NOT present set var to value
+# #%end
+
+# i $HOME/.configurator:
+# LIB_BASE=/usr/lib:/lib:/usr/local/lib:/usr:/usr/local
+# INCLUDE_BASE=/include /usr/include mm
+
+function findfile
+{
+ FILE=$1
+ BASE=$2
+ DONE="no"
+
+ # try base
+ for HEAD in `echo $BASE|tr ':' ' '`
+ do
+ # try appending all in endings in SEARCH
+ for END in '.' `echo $SEARCH|tr ':' ' '`
+ do
+#    echo $HEAD/$END/$FILE 1>&2
+    if [ -f $HEAD/$END/$FILE ]; then
+#    echo Found $HEAD/$END/$FILE 1>&2
+    echo -n " .. " 1>&2
+    if [ $END = "." ]; then
+    echo $HEAD
+    else
+    echo $HEAD/$END
+    fi
+    DONE="yes"
+    break
+    fi
+ done
+ if [ $DONE = "yes" ]; then
+ break
+ fi
+ done
+ if [ $DONE = "no" ]; then
+ exit 1
+ fi
+}
+
+function param
+{
+ local what=$1
+ local name
+ local value
+ for PAR in $PARAMS
+ do
+   name=$(echo $PAR|cut -d '=' -f 1)
+   value=$(echo $PAR|cut -d '=' -f 2)
+   if [ $what = $name ]; then
+       if [ -z "$value" ]; then
+	   echo -n "true"
+       fi
+       echo $value
+       return
+   fi
+ done
+}
+
+function set_vars
+{
+ while read LINE
+ do
+ set $LINE
+ CMD=$1
+ shift 1
+
+ case $CMD in
+ 'set')
+   VALUE=$1
+   VAR=$2
+   echo "$VAR=$VALUE" >>Makefile
+   echo "Set $VAR=$VALUE"
+   ;;
+ 'seteval')
+   VAR=$1
+   shift
+   EVAL="$@"
+   echo "Evaluating \"$EVAL\""
+   VALUE="$( eval $EVAL )"
+   if [ "$VALUE" ]; then
+       echo "$VAR=$VALUE" >>Makefile
+       echo "Set $VAR=$VALUE"
+   fi
+   ;;
+ 'setif')
+   VAR=$1
+   VALUE=$2
+   if grep "^$VAR=$VALUE" Makefile > /dev/null; then
+     echo "$4=$3" >>Makefile
+     echo "Set $4=$3"
+   fi
+   ;;
+ 'warn')
+   VAR=$1
+   if ! grep "^$VAR=" Makefile > /dev/null; then
+     shift
+     echo "WARN: $@"
+   fi
+   ;;
+ 'subdir')
+   while [ -n "$1" ]; do
+       echo "Enter $1"
+       echo "./configure $PARAMS"
+       if ! (cd $1 && ./configure $PARAMS) ; then
+	   echo "Configure failed at $1"
+	   exit 1
+       fi
+       shift
+   done
+   ;;
+ 'ifdef')
+   VAR=$1
+   read LINE
+   if grep "^$VAR=" Makefile > /dev/null; then
+       echo "$VAR is define as: $(grep -q "^$VAR=" Makefile)"
+       echo "$LINE" | set_vars
+   fi
+   ;;
+ 'ifndef')
+   VAR=$1
+   read LINE
+   if ! grep "^$VAR=" Makefile > /dev/null; then
+       echo "$LINE" | set_vars
+   fi
+   ;;
+ 'setifdef')
+   VAR=$1
+   if grep "^$VAR=" Makefile > /dev/null; then
+     VALUE=""
+     shift 1
+     while [ "$2" ]; do
+	 if [ "$VALUE" ]; then
+	     VALUE="$VALUE $1"
+	 else
+	     VALUE="$1"
+	 fi
+	 shift
+     done
+
+     echo "$1=$VALUE" >>Makefile
+     echo "Set $1=$VALUE"
+   fi
+   ;;
+ 'setifndef')
+   VAR=$1
+   if ! grep "^$VAR=" Makefile > /dev/null; then
+     VALUE="$2"
+     shift 2
+     while [ "$2" ]; do
+	 VALUE="$VALUE $1"
+	 shift
+     done
+
+     echo "$1=$VALUE" >>Makefile
+     echo "Set $1=$VALUE"
+   fi
+   ;;
+ 'search')
+   echo Extended search: \"$@\"
+   SEARCH=$1
+   ;;
+ 'prep')
+   echo Extended search-base: \"$@\"
+   PREP=$1
+   ;;
+ 'prepifdef')
+   VAR=$1
+   if grep "^$VAR=" Makefile > /dev/null; then
+     shift 1
+     echo Extended search-base: \"$@\"
+     PREP=$1
+   fi
+   ;;
+ 'switch')
+   VALUE=$(param $1)
+   if [ "$VALUE" ]; then
+       VAR=$2
+       echo "$VAR=$VALUE" >>Makefile
+       echo "Set switch $VAR=$VALUE"
+   fi
+   ;;
+ 'ifswitch')
+   VALUE=$(param $1)
+   if [ "$VALUE" ]; then
+       VALUE=""
+       while [ "$3" ]; do
+	   VALUE="$VALUE $2"
+	   shift
+       done
+       VAR=$2
+       echo "$VAR=$VALUE" >>Makefile
+       echo "Set switch $VAR=$VALUE"
+   else
+       echo "Switch \"$1\" not used"
+   fi
+   ;;
+ 'ifnswitch')
+   VALUE=$(param $1)
+   if [ -z "$VALUE" ]; then
+       SWITCH=$1
+       while [ "$3" ]; do
+	   VALUE="$VALUE $2"
+	   shift
+       done
+       VAR=$2
+       echo "$VAR=$VALUE" >>Makefile
+       echo "Set $VAR=$VALUE ($SWITCH not set)"
+   fi
+   ;;
+ 'tryfile')
+   LIB=$1
+   VAR=$2
+   echo -n Searching for file $LIB
+   if ! PLACE=`findfile $LIB $PREP:$LIB_BASE:$INCLUDE_BASE` ; then
+     echo .. Not found
+     continue
+   fi
+   echo Found: $PLACE/$LIB
+   echo -n "$VAR=" >> Makefile
+   if [ "$3" ]; then
+     echo -n "$3" >> Makefile
+   fi
+   echo "$PLACE/$LIB" >> Makefile
+   ;;
+ 'file')
+   LIB=$1
+   VAR=$2
+   echo -n Searching for file $LIB
+   if ! PLACE=`findfile $LIB $PREP:$LIB_BASE:$INCLUDE_BASE` ; then
+     echo 
+     echo "ERROR: Complete and miserable failure to find $LIB"
+     exit 1
+   fi
+   echo Found: $PLACE/$LIB
+   echo -n "$VAR=" >> Makefile
+   if [ "$3" ]; then
+     echo -n "$3" >> Makefile
+   fi
+   echo "$PLACE/$LIB" >> Makefile
+   ;;
+
+ 'trydir')
+   INCLUDE=$1
+   VAR=$2
+   echo -n Searching for dir with file $INCLUDE
+   if ! PLACE=`findfile $INCLUDE $PREP:$INCLUDE_BASE:$LIB_BASE` ; then
+     echo .. Not found
+     continue
+   fi
+   echo Found in: $PLACE
+   echo -n "$VAR=" >> Makefile
+   if [ "$3" ]; then
+     echo -n "$3" >> Makefile
+   fi
+   echo "${PLACE}"  >> Makefile
+   ;;
+ 'dir')
+   INCLUDE=$1
+   VAR=$2
+   echo -n Searching for dir with file $INCLUDE
+   if ! PLACE=`findfile $INCLUDE $PREP:$INCLUDE_BASE:$LIB_BASE` ; then
+     echo 1>&2
+     echo "ERROR: Complete and miserable failure to find $INCLUDE" 1>&2
+     exit 1
+   fi
+   echo Found in: $PLACE
+   echo -n "$VAR=" >> Makefile
+   if [ "$3" ]; then
+     echo -n "$3" >> Makefile
+   fi
+   echo "${PLACE}"  >> Makefile
+   ;;
+ esac
+ done
+}
+
+echo "Configurator: $VERSION"
+
+if [ "$1" = "--help" ]; then
+echo
+echo "\"\$HOME/.configurator\" and/or \"\$PWD/.configurator\":"
+echo " Set LIB_BASE for file searching."
+echo " Set INCLUDE_BASE for directory searching."
+echo " Value of XXX_BASE is DIR:DIR2:DIRN:..."
+echo
+echo "Makefile syntax:"
+echo " Lines beginning with:"
+echo "   #? - translates to ordinary makeline."
+echo "   #% - configurator command to run."
+echo
+echo " Configurator commands:"
+echo "  #%subdir dir1 dir2 dir3 # run ./configure in these dirs"
+echo "  #%set value VARNAME"
+echo "  #%seteval VARNAME eval"
+echo "  #%setif VAR equals_value value VARNAME"
+echo "  #%setifdef DEFVAR value VARNAME"
+echo "  #%setifndef DEFVAR value VARNAME"
+echo "  #%search openssl:ssl:openssl/lib"
+echo "  #%ifdef VAR     # perform next line if VAR defined"
+echo "  #%ifndef VAR    # perform next line if VAR undefined"
+echo "  #%prep /opt/diet/lib"
+echo "  #%prepifdef DEFVAR /opt/diet/lib"
+echo "  #%file libname.a VARNAME [PREFIX]    # hard failure"
+echo "  #%dir find_file.h VARNAME [PREFIX]"
+echo "  #%tryfile libname.a VARNAME [PREFIX] # soft failure"
+echo "  #%trydir find_file.h VARNAME [PREFIX]"
+echo "  #%switch --name VARNAME         # set vars value to the value of switch"
+echo "  #%warn VARNAME line of text     # print text if VARNAME not set"
+echo "  #%ifswitch --name value VARNAME # if switch present set var to value"
+echo "  #%ifnswitch --name value VARNAME # if switch NOT present set var"
+echo
+
+if [ -e Makefile ]; then
+    if egrep -q '\#\%switch|\#\%ifswitch|\#\%ifnswitch' Makefile; then
+	echo "Local Makefile accepts:"
+	egrep "#%switch|#%ifswitch|#%ifnswitch" Makefile
+    fi
+fi
+
+exit 0
+fi
+
+# defaults
+if [ -f $HOME/.configurator ]; then
+    echo "Reading user config $HOME/.configurator"
+    source $HOME/.configurator
+else
+    echo "No user conf found. ( $HOME/.configurator )"
+fi
+if [ -f .configurator ]; then
+    echo "Reading local config `pwd`/.configurator"
+    source .configurator
+else
+    echo "No local conf found. ( `pwd`/.configurator )"
+fi
+LIB_BASE=${LIB_BASE}:/usr/lib:/lib:/usr/local/lib:/usr:/usr/lib64:/usr/local:/opt:/
+INCLUDE_BASE=${INCLUDE_BASE}:/include:/usr/include:/usr/include/sys:/usr/lib:/usr/local/include:/opt
+
+if [ -f Makefile.orig ]; then
+    echo "Makefile.orig exists!"
+    echo "Did last configure fail?"
+    exit 1
+fi
+
+echo "Using LIB_BASE=\"$LIB_BASE\""
+echo "Using INCLUDE_BASE=\"$INCLUDE_BASE\""
+
+PARAMS="$@"
+
+TMPO=makefile.orig
+TMPE=makefile.eval
+TMPL=makefile.line
+
+egrep '^#\%|^#\?|^#\!' Makefile >$TMPO
+grep '^#%' Makefile | cut -b 3- >$TMPE
+grep '^#?' Makefile | cut -b 3- >$TMPL
+
+cp Makefile Makefile.orig
+
+cat $TMPO > Makefile
+
+#  set all variables indicated by .eval
+
+if ! cat $TMPE | set_vars ; then
+cp Makefile.orig Makefile
+rm -f $TMPO $TMPE $TMPL Makefile.orig
+exit 1
+fi
+
+cat $TMPL >> Makefile
+
+rm -f $TMPO $TMPE $TMPL Makefile.orig
+
