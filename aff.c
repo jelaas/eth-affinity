@@ -709,14 +709,17 @@ struct queue *queue_new(const char *name, int n, const char *fn)
 int is_netdev(const char *name)
 {
 	char *p;
+	char buf[256];
 
-	name = strdup(name);
-	if( (p = strchr(name, '-')) ) {
+	strncpy(buf, name, sizeof(buf)-1);
+	buf[sizeof(buf)-1] = 0;
+	
+	if( (p = strchr(buf, '-')) ) {
 	  *p = 0;
 	}
-
+	
 	/* this will work with namespaces too */
-	return if_nametoindex(name);
+	return if_nametoindex(buf);
 }
 
 
