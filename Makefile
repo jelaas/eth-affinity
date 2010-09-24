@@ -12,7 +12,7 @@
 #%ifnswitch --mandir $(PREFIX)/share/man MANDIR
 #?V=`cat version.txt|cut -d ' ' -f 2`
 #?CFLAGS=$(ARCH) -Os -Wall -DVERSION=\"$(V)\" -DPREFIX=\"$(PREFIX)\" -DSYSCONFDIR=\"$(SYSCONFDIR)\"
-#?CC=$(DIET) gcc
+#?CC=$(DIET) gcc $(DIETINC)
 #?eth-affinity:	aff.o jelopt.o jelist.o
 #?	$(CC) -static $(DIETLIB) -o eth-affinity aff.o jelopt.o jelist.o
 #?install:	eth-affinity
@@ -34,7 +34,7 @@ SYSCONFDIR= /etc
 MANDIR= $(PREFIX)/share/man
 V=`cat version.txt|cut -d ' ' -f 2`
 CFLAGS=$(ARCH) -Os -Wall -DVERSION=\"$(V)\" -DPREFIX=\"$(PREFIX)\" -DSYSCONFDIR=\"$(SYSCONFDIR)\"
-CC=$(DIET) gcc
+CC=$(DIET) gcc $(DIETINC)
 eth-affinity:	aff.o jelopt.o jelist.o
 	$(CC) -static $(DIETLIB) -o eth-affinity aff.o jelopt.o jelist.o
 install:	eth-affinity
