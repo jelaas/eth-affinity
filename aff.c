@@ -1036,6 +1036,8 @@ int set_heuristics(struct jlhead *l)
 		conf.max_tx = conf.max_txrx;
 	
 	if(!conf.heuristics) return 0;
+
+	conf.memnode_dist = 1;
 	
 	/* turn on RPS if we have atleast one multiq interface or
 	   we only have one interface */
@@ -1256,7 +1258,7 @@ int main(int argc, char **argv)
 	conf.devices = jl_new();
 	conf.memnodes = jl_new();
 	conf.reserve_mq = 1;
-	conf.memnode_dist = 1;
+	conf.memnode_dist = 0;
 	
 	jl_sort(conf.devices, devcmp);
 	
