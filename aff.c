@@ -20,7 +20,8 @@
 #include "jelopt.h"
 #include "jelist.h"
 
-#define MAXCPU 128
+#define MAXNODE 32
+#define MAXCPU 64
 #define MAX(a,b)  ((a)>(b) ? (a) : (b))
 
 struct cpu {
@@ -54,7 +55,7 @@ struct {
 	int maxcpu, reservedcpus;
 	struct jlhead *limit, *exclude; /* list of char * */
 	struct jlhead *devices; /* list if struct dev * */
-	int rr_single, reserve_mq;
+	int rr_single, reserve_mq, memnode_dist;
 	int num_mq, max_rx, max_tx, max_txrx;
 	struct jlhead *memnodes;
 } conf;
@@ -93,6 +94,15 @@ static struct jlhead *jl_splitstr(struct jlhead *l, const char *s, int delim)
 	return l;
 }
 
+static struct cpu *cpu_new(int n, int cpuid)
+{
+	struct cpu *cpu;
+	cpu = malloc(sizeof(struct cpu));
+	cpu->node = n;
+	cpu->cpu = cpuid;
+	return cpu;
+}
+
 static struct memnode *memnode_get(int n)
 {
 	struct memnode *node = NULL;
@@ -106,6 +116,88 @@ static struct memnode *memnode_get(int n)
 	node->n = n;
 	jl_append(conf.memnodes, node);
 	return node;
+}
+
+static void memnode_cpus(const struct memnode *node, struct jlhead *l)
+{
+	int i;
+	for(i=0;i<MAXCPU;i++)
+		if(node->cpu[i])
+			jl_append(l, cpu_new(node->n, i));
+	return;
+}
+
+/*
+ * pick a cpu from the node which has the most cpus left
+ * remove the picked cpu from the list cpulist
+ */
+static struct cpu *cpu_pick(struct jlhead *cpulist, int cpu_offset)
+{
+	struct cpu *cpu;
+	int node[MAXNODE], i, count=0;
+	int selnode=0;
+	
+	memset(node, 0, sizeof(node));
+	
+	jl_foreach(cpulist, cpu) {
+		if(cpu->cpu < cpu_offset)
+			continue;
+		node[cpu->node]++;
+	}
+	for(i=0;i<MAXNODE;i++) {
+		if(node[i] > count) {
+			selnode = i;
+			count = node[i];
+		}
+	}
+
+	jl_foreach(cpulist, cpu) {
+		if(cpu->cpu < cpu_offset)
+			continue;
+		if(cpu->node == selnode)
+			break;
+	}
+	
+	jl_del(cpu);
+	return cpu;
+}
+
+static int cpu_mem_cmp(const void *i1, const void *i2)
+{
+	const struct cpu *c1=i1, *c2=i2;
+	return c1->cpu - c2->cpu;
+}
+
+/*
+ * select <nselect> number of cpus from cpulist
+ * distributed over all memory nodes
+ * sort by cpunumber
+ */
+static struct jlhead *cpu_select(struct jlhead *cpulist, int nselect, int cpu_offset)
+{
+	struct cpu *cpu;
+	struct jlhead *l;
+	
+	l  = jl_new();
+	jl_sort(l, cpu_mem_cmp);
+	
+	while(nselect--) {
+		cpu = cpu_pick(cpulist, cpu_offset);
+		jl_ins(l, cpu);
+	}
+	return l;
+}
+
+static struct jlhead *memnodes_cpu_select(int nselect, int cpu_offset)
+{
+	struct memnode *node;
+	struct jlhead *cl, *pl;
+	cl = jl_new();
+	jl_foreach(conf.memnodes, node) {
+		memnode_cpus(node, cl);
+	}
+	pl = cpu_select(cl, nselect, cpu_offset);
+	return pl;
 }
 
 /* create a mask with all cpus on current node, except reserved CPUs */
@@ -327,21 +419,27 @@ static int reset_singleq(const struct dev *dev)
  */
 static int aff_multiq(const struct dev *dev)
 {
+	struct jlhead *cpulist = NULL;
+	struct cpu *_cpu;
 	char fn[256], buf[8];
 	int fd, n;
 	int i, cpu;
 	int rps_cpu = -1;
 	struct queue *q;
 	int cpu_offset, nr_use_cpu;
-
+	
 	cpu_offset = var.cpu_offset;
 	nr_use_cpu = var.nr_use_cpu;	
-
+	
 	if( (!conf.reserve_mq) && ( (dev->rx+dev->txrx) >1) ) {
 		nr_use_cpu = var.nr_cpu;
 		cpu_offset = 0;
 	}
-
+	
+	if(conf.memnode_dist) {
+		cpulist = memnodes_cpu_select(nr_use_cpu, cpu_offset);
+	}
+	
 	for(i=nr_use_cpu-cpu_offset,q=jl_head_first(dev->rxq);
 	    q;
 	    i++,q=jl_next(q)) {
@@ -424,7 +522,11 @@ static int aff_multiq(const struct dev *dev)
 	    q;
 	    i++,q=jl_next(q)) {
 		snprintf(fn, sizeof(fn), "%s/smp_affinity", q->fn);
-		cpu = (i % nr_use_cpu) + cpu_offset;
+		if(conf.memnode_dist) {
+			_cpu = jl_at(cpulist, i % nr_use_cpu);
+			cpu = _cpu->cpu;
+		} else
+			cpu = (i % nr_use_cpu) + cpu_offset;
 		snprintf(buf, sizeof(buf), "%x", 1 << cpu);
 
 		q->assigned_cpu = cpu;
@@ -1154,6 +1256,7 @@ int main(int argc, char **argv)
 	conf.devices = jl_new();
 	conf.memnodes = jl_new();
 	conf.reserve_mq = 1;
+	conf.memnode_dist = 1;
 	
 	jl_sort(conf.devices, devcmp);
 	
@@ -1183,6 +1286,7 @@ int main(int argc, char **argv)
 		       " --exclude N,..  Do not configure these devices.\n"
 		       " --sysdir DIR    [/sys]\n"
 		       " --irqdir DIR    [/proc/irq]\n"
+		       " --no-dist       Do not try to distribute over memory nodes.\n"
 		       "\n"
 			);
 		exit(0);
@@ -1203,6 +1307,8 @@ int main(int argc, char **argv)
 		conf.dryrun = 1;
 	if(jelopt(argv, 'R', "no-reserve-mq", NULL, &err))
 		conf.reserve_mq = 0;
+	if(jelopt(argv, 0, "no-dist", NULL, &err))
+		conf.memnode_dist = 0;
 	if(jelopt(argv, 'H', "noheur", NULL, &err))
 		conf.heuristics = 0;
 	if(jelopt(argv, 0, "sysdir", &conf.sysdir, &err))
