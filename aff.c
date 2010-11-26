@@ -2,7 +2,7 @@
  * File: aff.c
  * Implements: CPU affinity setting of ethernet devices
  *
- * Copyright: Jens Låås, UU 2009
+ * Copyright: Jens Låås, UU 2009, 2010
  * Copyright license: According to GPL, see file COPYING in this directory.
  *
  */
@@ -23,7 +23,12 @@
 #define MAXCPU 128
 #define MAX(a,b)  ((a)>(b) ? (a) : (b))
 
-struct cpunode {
+struct cpu {
+	int node;
+	int cpu;
+};
+
+struct memnode {
 	int n; /* node number */
 	int cpu[MAXCPU]; /* cpu vector. != 0 means cpu included in node */
 };
@@ -51,7 +56,7 @@ struct {
 	struct jlhead *devices; /* list if struct dev * */
 	int rr_single, reserve_mq;
 	int num_mq, max_rx, max_tx, max_txrx;
-	struct jlhead *cpunodes;
+	struct jlhead *memnodes;
 } conf;
 
 struct {
@@ -88,18 +93,18 @@ static struct jlhead *jl_splitstr(struct jlhead *l, const char *s, int delim)
 	return l;
 }
 
-static struct cpunode *cpunode_get(int n)
+static struct memnode *memnode_get(int n)
 {
-	struct cpunode *node = NULL;
+	struct memnode *node = NULL;
 	
-	jl_foreach(conf.cpunodes, node) {
+	jl_foreach(conf.memnodes, node) {
 		if(node->n == n)
 			return node;
 	}
-	node = malloc(sizeof(struct cpunode));
-	memset(node, 0, sizeof(struct cpunode));
+	node = malloc(sizeof(struct memnode));
+	memset(node, 0, sizeof(struct memnode));
 	node->n = n;
-	jl_append(conf.cpunodes, node);
+	jl_append(conf.memnodes, node);
 	return node;
 }
 
@@ -107,11 +112,11 @@ static struct cpunode *cpunode_get(int n)
 static int node_cpu_mask(unsigned long long *bitmaskp, char *buf, size_t bufsize, int cpu)
 {
 	/* lookup node for cpu. then add all cpus from that node */
-	struct cpunode *node, *usenode = NULL;
+	struct memnode *node, *usenode = NULL;
 	unsigned long long bitmask = 0;
 	int i;
 	
-	jl_foreach(conf.cpunodes, node) {
+	jl_foreach(conf.memnodes, node) {
 		if(node->cpu[cpu]) {
 			usenode = node;
 			break;
@@ -834,7 +839,7 @@ static int cpu_nodemap()
 	DIR *d;
 	struct dirent *ent;
 	int fd, n, i;
-	struct cpunode *cpunode;
+	struct memnode *memnode;
 	char fn[512], buf[64];
 	struct jlhead *intervals, *cpus;
 	char *interval;
@@ -843,17 +848,17 @@ static int cpu_nodemap()
         /* 
 	   If "/sys/devices/system/node" exists we have a multinode system,
 	   
-	   For each "/sys/devices/system/node/nodeX" create a cpunode
+	   For each "/sys/devices/system/node/nodeX" create a memnode
 
-	   Add cpus from /sys/devices/system/node/nodeX/cpulist to cpunode.
+	   Add cpus from /sys/devices/system/node/nodeX/cpulist to memnode.
 	   
 	*/
 	sprintf(fn, "%s/%s", conf.sysdir, "/devices/system/node");
 	if(stat(fn, &statbuf)) {
 		var.multinode = 0;
-		cpunode = cpunode_get(0);
+		memnode = memnode_get(0);
 		for(i=0;i<var.nr_cpu;i++)
-			cpunode->cpu[i] = 1;
+			memnode->cpu[i] = 1;
 		return 0;
 	}
 	
@@ -876,7 +881,7 @@ static int cpu_nodemap()
 		if(fd == -1)
 			continue;
 
-		cpunode = cpunode_get(atoi(ent->d_name+4));
+		memnode = memnode_get(atoi(ent->d_name+4));
 		
 		n = read(fd, buf, sizeof(buf));
 		if(n > 0) {
@@ -892,7 +897,7 @@ static int cpu_nodemap()
 				if(cpus->len > 1)
 					last = atoi(jl_next(jl_head_first(cpus)));
 				for(i=first;i<=last;i++)
-					cpunode->cpu[i] = 1;
+					memnode->cpu[i] = 1;
 			}
 		}
 		close(fd);
@@ -1147,7 +1152,7 @@ int main(int argc, char **argv)
 	conf.limit = jl_new();
 	conf.exclude = jl_new();
 	conf.devices = jl_new();
-	conf.cpunodes = jl_new();
+	conf.memnodes = jl_new();
 	conf.reserve_mq = 1;
 	
 	jl_sort(conf.devices, devcmp);
@@ -1235,10 +1240,10 @@ int main(int argc, char **argv)
 
 	cpu_nodemap();
 	if(conf.verbose > 1) {
-		struct cpunode *node;
+		struct memnode *node;
 		int i;
 		
-		jl_foreach(conf.cpunodes, node) {
+		jl_foreach(conf.memnodes, node) {
 			printf("Node: %d\n CPU: ", node->n);
 			for(i=0;i<MAXCPU;i++)
 				if(node->cpu[i]) printf("%d ", i);
