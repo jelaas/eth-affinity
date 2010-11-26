@@ -20,7 +20,7 @@
 #include "jelopt.h"
 #include "jelist.h"
 
-#define MAXCPU 64
+#define MAXCPU 128
 #define MAX(a,b)  ((a)>(b) ? (a) : (b))
 
 struct cpunode {
