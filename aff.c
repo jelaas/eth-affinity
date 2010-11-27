@@ -37,10 +37,10 @@ struct memnode {
 struct dev {
 	char *name, *fn, *old_affinity;
 	int numa_node;
-	int single, rr_multi, use_rps;
-	int rps, rx, tx, txrx;
+	int single, rr_multi, use_rps, use_xps;
+	int xps, rps, rx, tx, txrx;
 	int assigned_cpu;
-	struct jlhead *rxq, *txq, *txrxq, *rpsq; // list of struct queue
+	struct jlhead *rxq, *txq, *txrxq, *rpsq, *xpsq; // list of struct queue
 };
 
 struct queue {
@@ -67,6 +67,7 @@ struct {
 	int nr_use_cpu;
 	int cpu_offset;
 	int rps_detected;
+	int xps_detected;
 	int multinode;
 } var;
 
@@ -775,8 +776,10 @@ ok:
 		dev->txq = jl_new();
 		dev->txrxq = jl_new();
 		dev->rpsq = jl_new();
+		dev->xpsq = jl_new();
 		dev->assigned_cpu = -1;
 		dev->use_rps = 0;
+		dev->use_xps = 0;
 		jl_sort(dev->rxq, qcmp);
 		jl_sort(dev->txq, qcmp);
 		jl_sort(dev->txrxq, qcmp);
@@ -1236,6 +1239,40 @@ static int scan_rps()
 	return 0;
 }
 
+static int scan_xps()
+{
+	struct dev *dev;
+	struct queue *queue;
+	int n, fd, i;
+	char fn[256], buf[64];
+	
+	jl_foreach(conf.devices, dev) {
+		for(i=0;i<MAX(1, MAX(dev->tx, dev->txrx));i++) {
+			snprintf(fn, sizeof(fn),
+				 "%s/class/net/%s/queues/tx-%d/xps_cpus",
+				 conf.sysdir,
+				 dev->name,
+				 i);
+			
+			fd = open(fn, O_RDONLY);
+			if(fd == -1)
+				continue;
+			n = read(fd, buf, sizeof(buf)-1);
+			if(n>1) {
+				buf[--n] = 0;
+				dev->xps++;
+				queue = queue_new(dev->name,
+						  i, fn);
+				queue->old_affinity = strdup(buf);
+				jl_ins(dev->xpsq, queue);
+				
+			}
+			close(fd);
+		}
+	}
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	DIR *d;
@@ -1394,6 +1431,7 @@ int main(int argc, char **argv)
 	detect_singleq(conf.devices);
 	
 	scan_rps();
+	scan_xps();
 
 	if(conf.verbose > 1) {
 		jl_foreach(conf.devices, dev) {
@@ -1401,7 +1439,8 @@ int main(int argc, char **argv)
 			printf(" rx=%d", dev->rx);
 			printf(" tx=%d", dev->tx);
 			printf(" txrx=%d", dev->txrx);
-			printf(" rps=%d\n", dev->rps);
+			printf(" rps=%d", dev->rps);
+			printf(" xps=%d\n", dev->xps);
 		}
 	}
 	
@@ -1427,6 +1466,18 @@ int main(int argc, char **argv)
 						       dev->numa_node);
 					else
 						printf("rps %s -> %s\n",
+						       demask(q->old_affinity),
+						       q->name);
+				}
+				for(q=jl_head_first(dev->xpsq);q;q=jl_next(q)) {
+					if(conf.verbose)
+						printf("xps: cpu %s [mask 0x%s] -> %s@%d\n",
+						       demask(q->old_affinity),
+						       q->old_affinity,
+						       q->name,
+						       dev->numa_node);
+					else
+						printf("xps %s -> %s\n",
 						       demask(q->old_affinity),
 						       q->name);
 				}
@@ -1477,6 +1528,18 @@ int main(int argc, char **argv)
 						       dev->numa_node);
 					else
 						printf("rps %s -> %s\n",
+						       demask(q->old_affinity),
+						       q->name);
+				}
+				for(q=jl_head_first(dev->xpsq);q;q=jl_next(q)) {
+					if(conf.verbose)
+						printf("xps: cpu %s [mask 0x%s] -> %s@%d\n",
+						       demask(q->old_affinity),
+						       q->old_affinity,
+						       q->name,
+						       dev->numa_node);
+					else
+						printf("xps %s -> %s\n",
 						       demask(q->old_affinity),
 						       q->name);
 				}
