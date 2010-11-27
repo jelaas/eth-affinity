@@ -426,7 +426,7 @@ static int aff_multiq(const struct dev *dev)
 	int fd, n;
 	int i, cpu;
 	int rps_cpu = -1;
-	struct queue *q;
+	struct queue *q, *xq;
 	int cpu_offset, nr_use_cpu;
 	
 	cpu_offset = var.cpu_offset;
@@ -492,6 +492,12 @@ static int aff_multiq(const struct dev *dev)
 			cpu = rps_cpu;
 		
 		snprintf(buf, sizeof(buf), "%x", 1 << cpu);
+
+		if(dev->xps) {
+			/* assign the same cpu to the xps queue */
+			xq = jl_at(dev->xpsq, q->n);
+			if(xq) xq->assigned_cpu = cpu;
+		}
 		
 		if(!conf.quiet) {
 			if(conf.verbose)
@@ -532,6 +538,11 @@ static int aff_multiq(const struct dev *dev)
 
 		q->assigned_cpu = cpu;
 		rps_cpu = cpu;
+		if(dev->xps) {
+			/* assign the same cpu to the xps queue */
+			xq = jl_at(dev->xpsq, q->n);
+			if(xq) xq->assigned_cpu = cpu;
+		}
 		
 		if(!conf.quiet) {
 			if(conf.verbose)
@@ -571,6 +582,42 @@ static int aff_multiq(const struct dev *dev)
 					       q->fn);
 				else
 					printf("rps %s -> %s\n",
+					       demask(buf), q->name);
+			}
+			
+			if(!conf.dryrun) {
+				fd = open(q->fn, O_WRONLY);
+				if(fd == -1) {
+					if(!conf.silent)
+						fprintf(stderr,
+							"Failed to open '%s'\n",
+							q->fn);
+					return -1;
+				}
+				n = strlen(buf);
+				if(write(fd, buf, n)!=n) {
+					close(fd);
+					return -1;
+				}
+				close(fd);
+			}
+		}
+	}
+
+	if(dev->use_xps) {
+		jl_foreach(dev->xpsq, q) {
+			node_cpu_mask(NULL, buf, sizeof(buf),
+				      q->assigned_cpu >= 0 ? q->assigned_cpu : 0);
+			if(!conf.quiet) {
+				if(conf.verbose)
+					printf("xps: cpu %s [mask 0x%s] -> %s@%d %s\n",
+					       demask(buf),
+					       buf,
+					       q->name,
+					       dev->numa_node,
+					       q->fn);
+				else
+					printf("xps %s -> %s\n",
 					       demask(buf), q->name);
 			}
 			
@@ -1083,6 +1130,8 @@ int set_heuristics(struct jlhead *l)
 	
 	jl_foreach(l, dev) {
 		if(!dev->single) {
+			if((dev->txrx > 1) || (dev->tx > 1))
+				dev->use_xps = 1;
 			if((dev->txrx <= 1) && 
 			   (dev->rx < var.nr_use_cpu) && 
 			   (conf.num_mq > 1) && 
