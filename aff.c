@@ -228,6 +228,18 @@ static int node_cpu_mask(unsigned long long *bitmaskp, char *buf, size_t bufsize
 	return 0;
 }
 
+/* create a mask with cpu */
+static int cpu_mask(unsigned long long *bitmaskp, char *buf, size_t bufsize, int cpu)
+{
+	unsigned long long bitmask = 0;
+	
+	bitmask |= (1 << cpu);
+
+	if(bitmaskp) *bitmaskp = bitmask;
+	snprintf(buf, bufsize, "%llx", bitmask);
+	return 0;
+}
+
 static int reset_multiq(const struct dev *dev)
 {
 	int i;
@@ -606,7 +618,7 @@ static int aff_multiq(const struct dev *dev)
 
 	if(dev->use_xps) {
 		jl_foreach(dev->xpsq, q) {
-			node_cpu_mask(NULL, buf, sizeof(buf),
+			cpu_mask(NULL, buf, sizeof(buf),
 				      q->assigned_cpu >= 0 ? q->assigned_cpu : 0);
 			if(!conf.quiet) {
 				if(conf.verbose)
@@ -1582,15 +1594,15 @@ int main(int argc, char **argv)
 				}
 				for(q=jl_head_first(dev->xpsq);q;q=jl_next(q)) {
 					if(conf.verbose)
-						printf("xps: cpu %s [mask 0x%s] -> %s@%d\n",
+						printf("xps: cpu %s [mask 0x%s] -> %s-%d@%d\n",
 						       demask(q->old_affinity),
 						       q->old_affinity,
-						       q->name,
+						       q->name, q->n,
 						       dev->numa_node);
 					else
-						printf("xps %s -> %s\n",
+						printf("xps %s -> %s-%d\n",
 						       demask(q->old_affinity),
-						       q->name);
+						       q->name, q->n);
 				}
 			}
 		}
