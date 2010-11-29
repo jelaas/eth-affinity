@@ -622,15 +622,16 @@ static int aff_multiq(const struct dev *dev)
 				      q->assigned_cpu >= 0 ? q->assigned_cpu : 0);
 			if(!conf.quiet) {
 				if(conf.verbose)
-					printf("xps: cpu %s [mask 0x%s] -> %s@%d %s\n",
+					printf("xps: cpu %s [mask 0x%s] -> %s-%d@%d %s\n",
 					       demask(buf),
 					       buf,
 					       q->name,
+					       q->n,
 					       dev->numa_node,
 					       q->fn);
 				else
-					printf("xps %s -> %s\n",
-					       demask(buf), q->name);
+					printf("xps %s -> %s-%d\n",
+					       demask(buf), q->name, q->n);
 			}
 			
 			if(!conf.dryrun) {
