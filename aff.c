@@ -53,6 +53,7 @@ struct {
 	char *procirq, *sysdir;
 	int quiet, silent, dryrun, verbose, list, heuristics, reset;
 	int maxcpu, reservedcpus;
+	int maxq;
 	struct jlhead *limit, *exclude; /* list of char * */
 	struct jlhead *devices; /* list if struct dev * */
 	int rr_single, reserve_mq, memnode_dist;
@@ -450,7 +451,8 @@ static int aff_multiq(const struct dev *dev)
 	}
 	
 	if(conf.memnode_dist) {
-		cpulist = memnodes_cpu_select(nr_use_cpu, cpu_offset);
+		//cpulist = memnodes_cpu_select(nr_use_cpu, cpu_offset);
+		cpulist = memnodes_cpu_select(dev->txrx, cpu_offset);
 	}
 	
 	for(i=nr_use_cpu-cpu_offset,q=jl_head_first(dev->rxq);
@@ -868,6 +870,9 @@ ok:
 struct queue *queue_new(const char *name, int n, const char *fn)
 {
 	struct queue *q;
+
+	if(conf.maxq && n >= conf.maxq) return NULL;
+
 	q = malloc(sizeof(struct queue));
 	q->fn = strdup(fn);
 	q->name = strdup(name);
@@ -913,23 +918,29 @@ int scan(struct jlhead *l, const struct dirent *ent, const char *base)
 			dev = dev_get(l, ent->d_name);
 			if(dev) {
 				if((q=dev_rx(ent->d_name))) {
-					dev->rx++;
 					queue = queue_new(ent->d_name, q-1, fn);
-					jl_ins(dev->rxq, queue);
+					if(queue) {
+						dev->rx++;
+						jl_ins(dev->rxq, queue);
+					}
 					continue;
 				} 
 				if((q=dev_tx(ent->d_name))) {
-					dev->tx++;
 					queue = queue_new(ent->d_name,
 							  q-1, fn);
-					jl_ins(dev->txq, queue);
+					if(queue) {
+						dev->tx++;
+						jl_ins(dev->txq, queue);
+					}
 					continue;
 				} 
 				if((q=dev_txrx(ent->d_name))) {
-					dev->txrx++;
 					queue = queue_new(ent->d_name,
 							  q-1, fn);
-					jl_ins(dev->txrxq, queue);
+					if(queue) {
+						dev->txrx++;
+						jl_ins(dev->txrxq, queue);
+					}
 					continue;
 				}
 				dev->fn = strdup(fn); /* pure dev irq */
@@ -1100,7 +1111,11 @@ int set_heuristics(struct jlhead *l)
 	
 	if(!conf.heuristics) return 0;
 
-	conf.memnode_dist = 1;
+	if(exists_mq) {
+		printf("Heuristic:"
+		       " memory node distribution enabled.\n");
+		conf.memnode_dist = 1;
+	}
 	
 	/* turn on RPS if we have atleast one multiq interface or
 	   we only have one interface */
@@ -1288,11 +1303,13 @@ static int scan_rps()
 			n = read(fd, buf, sizeof(buf)-1);
 			if(n>1) {
 				buf[--n] = 0;
-				dev->rps++;
 				queue = queue_new(dev->name,
 						  i, fn);
-				queue->old_affinity = strdup(buf);
-				jl_ins(dev->rpsq, queue);
+				if(queue) {
+					dev->rps++;
+					queue->old_affinity = strdup(buf);
+					jl_ins(dev->rpsq, queue);
+				}
 				
 			}
 			close(fd);
@@ -1322,11 +1339,13 @@ static int scan_xps()
 			n = read(fd, buf, sizeof(buf)-1);
 			if(n>1) {
 				buf[--n] = 0;
-				dev->xps++;
 				queue = queue_new(dev->name,
 						  i, fn);
-				queue->old_affinity = strdup(buf);
-				jl_ins(dev->xpsq, queue);
+				if(queue) {
+					dev->xps++;
+					queue->old_affinity = strdup(buf);
+					jl_ins(dev->xpsq, queue);
+				}
 				
 			}
 			close(fd);
@@ -1375,6 +1394,7 @@ int main(int argc, char **argv)
 		       " -l --list       Read and list current affinity.\n"
 		       " -m --maxcpu N   Maximum nr of CPUs to use.\n"
 		       "                 Excluding reserved CPUs.\n"
+		       "    --maxq N     Scan a maximum of N queues per device.\n"
 		       " -r --reserve N  Nr of CPUs to reserve (not use).\n"
 		       "                 Reserves CPU 0-N.\n"
 		       " -R --no-reserve-mq\n"
@@ -1422,6 +1442,8 @@ int main(int argc, char **argv)
 		ins_comma_list(conf.exclude, ifname);
 	if(jelopt_int(argv, 'm', "maxcpu", &conf.maxcpu, &err))
 		if(!conf.maxcpu) err |= 128;
+	if(jelopt_int(argv, 0, "maxq", &conf.maxq, &err))
+		if(!conf.maxq) err |= 128;
 	if(jelopt_int(argv, 'r', "reserve", &conf.reservedcpus, &err))
 		;
 	
