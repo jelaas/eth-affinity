@@ -233,8 +233,8 @@ static int cpu_mask(unsigned long long *bitmaskp, char *buf, size_t bufsize, int
 {
 	unsigned long long bitmask = 0;
 	
-	bitmask |= (1 << cpu);
-
+	bitmask = (uint64_t) 1 << cpu;
+	
 	if(bitmaskp) *bitmaskp = bitmask;
 	snprintf(buf, bufsize, "%llx", bitmask);
 	return 0;
@@ -434,7 +434,7 @@ static int aff_multiq(const struct dev *dev)
 {
 	struct jlhead *cpulist = NULL;
 	struct cpu *_cpu;
-	char fn[256], buf[8];
+	char fn[256], buf[16];
 	int fd, n;
 	int i, cpu;
 	int rps_cpu = -1;
@@ -465,7 +465,7 @@ static int aff_multiq(const struct dev *dev)
 		q->assigned_cpu = cpu;
 		rps_cpu = cpu;
 		
-		snprintf(buf, sizeof(buf), "%x", 1 << cpu);
+		snprintf(buf, sizeof(buf), "%llx", (uint64_t) 1 << cpu);
 		
 		if(!conf.quiet) {
 			if(conf.verbose)
@@ -503,7 +503,7 @@ static int aff_multiq(const struct dev *dev)
 		if( (dev->tx == 1) && (dev->rx == 1) )
 			cpu = rps_cpu;
 		
-		snprintf(buf, sizeof(buf), "%x", 1 << cpu);
+		snprintf(buf, sizeof(buf), "%llx", (uint64_t) 1 << cpu);
 
 		if(dev->xps) {
 			/* assign the same cpu to the xps queue */
@@ -546,7 +546,7 @@ static int aff_multiq(const struct dev *dev)
 			cpu = _cpu->cpu;
 		} else
 			cpu = (i % nr_use_cpu) + cpu_offset;
-		snprintf(buf, sizeof(buf), "%x", 1 << cpu);
+		snprintf(buf, sizeof(buf), "%llx", (uint64_t) 1 << cpu);
 
 		q->assigned_cpu = cpu;
 		rps_cpu = cpu;
@@ -939,7 +939,7 @@ int scan(struct jlhead *l, const struct dirent *ent, const char *base)
 	closedir(d);
 	
 	if(dev) {
-		char buf[8], afn[256];
+		char buf[16], afn[256];
 		int fd, rc;
 		
 		snprintf(afn, sizeof(afn), "%s/smp_affinity", fn);
