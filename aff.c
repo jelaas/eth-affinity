@@ -245,7 +245,7 @@ static int reset_multiq(const struct dev *dev)
 {
 	int i;
 	unsigned long long cpu = 0;
-	char fn[256], buf[8];
+	char fn[256], buf[10];
 	int fd, n;
 	struct queue *q;
 	
