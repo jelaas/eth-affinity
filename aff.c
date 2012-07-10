@@ -54,6 +54,7 @@ struct {
 	int quiet, silent, dryrun, verbose, list, heuristics, reset;
 	int maxcpu, reservedcpus;
 	int maxq;
+	int debug;
 	struct jlhead *limit, *exclude; /* list of char * */
 	struct jlhead *devices; /* list if struct dev * */
 	int rr_single, reserve_mq, memnode_dist;
@@ -125,12 +126,23 @@ static struct memnode *memnode_get(int n)
 	return node;
 }
 
-static void memnode_cpus(const struct memnode *node, struct jlhead *l)
+static void memnode_cpus(const struct memnode *node, struct jlhead *l, int nselect, int cpu_offset)
 {
 	int i;
-	for(i=0;i<MAXCPU;i++)
-		if(node->cpu[i])
-			jl_append(l, cpu_new(node->n, i));
+	while(nselect > 0) {
+		for(i=cpu_offset;i<MAXCPU;i++)
+			if(node->cpu[i]) {
+				jl_append(l, cpu_new(node->n, i));
+				nselect--;
+			}
+
+		/* if we failed to add any cpu at all */
+		if(l->len == 0) {
+			if(conf.debug) printf("memnode_cpus: no CPUs for node!\n");
+			jl_append(l, cpu_new(node->n, 0));
+			return;
+		}
+	}
 	return;
 }
 
@@ -201,9 +213,11 @@ static struct jlhead *memnodes_cpu_select(int nselect, int cpu_offset)
 	struct jlhead *cl, *pl;
 	cl = jl_new();
 	jl_foreach(conf.memnodes, node) {
-		memnode_cpus(node, cl);
+		memnode_cpus(node, cl, nselect, cpu_offset);
 	}
+	if(conf.debug) printf("memnode_cpu_select: cpulist generated\n");
 	pl = cpu_select(cl, nselect, cpu_offset);
+	if(conf.debug) printf("memnode_cpu_select: cpus selected\n");
 	return pl;
 }
 
@@ -1432,6 +1446,8 @@ int main(int argc, char **argv)
 		conf.quiet = 1;
 	if(jelopt(argv, 'l', "list", NULL, &err))
 		conf.list = 1;
+	if(jelopt(argv, 0, "debug", NULL, &err))
+		conf.debug = 1;
 	if(jelopt(argv, 0, "reset", NULL, &err)) {
 		conf.reset = 1;
 		conf.heuristics = 0;
@@ -1512,6 +1528,7 @@ int main(int argc, char **argv)
 		}
 		if(var.cpu_offset < 0)
 			var.cpu_offset = 0;
+		if(conf.debug) printf("cpu offsets adjusted\n");
 	}
 	var.cur_mq_cpu = var.nr_cpu - var.cpu_offset;
 	
