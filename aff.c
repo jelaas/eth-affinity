@@ -88,6 +88,7 @@ static struct jlhead *jl_splitstr(struct jlhead *l, const char *s, int delim)
 			if(*s == delim)
 				break;
 		path = malloc(s-start+1);
+		if(!path) return l;
 		strncpy(path, start, s-start);
 		path[s-start] = 0;
 		jl_append(l, path);
@@ -100,8 +101,10 @@ static struct cpu *cpu_new(int n, int cpuid)
 {
 	struct cpu *cpu;
 	cpu = malloc(sizeof(struct cpu));
-	cpu->node = n;
-	cpu->cpu = cpuid;
+	if(cpu) {
+		cpu->node = n;
+		cpu->cpu = cpuid;
+	}
 	return cpu;
 }
 
@@ -114,9 +117,11 @@ static struct memnode *memnode_get(int n)
 			return node;
 	}
 	node = malloc(sizeof(struct memnode));
-	memset(node, 0, sizeof(struct memnode));
-	node->n = n;
-	jl_append(conf.memnodes, node);
+	if(node) {
+		memset(node, 0, sizeof(struct memnode));
+		node->n = n;
+		jl_append(conf.memnodes, node);
+	}
 	return node;
 }
 
@@ -159,8 +164,8 @@ static struct cpu *cpu_pick(struct jlhead *cpulist, int cpu_offset)
 		if(cpu->node == selnode)
 			break;
 	}
-	
-	jl_del(cpu);
+	if(cpu)
+		jl_del(cpu);
 	return cpu;
 }
 
@@ -185,7 +190,7 @@ static struct jlhead *cpu_select(struct jlhead *cpulist, int nselect, int cpu_of
 	
 	while(nselect--) {
 		cpu = cpu_pick(cpulist, cpu_offset);
-		jl_ins(l, cpu);
+		if(cpu) jl_ins(l, cpu);
 	}
 	return l;
 }
@@ -545,7 +550,10 @@ static int aff_multiq(const struct dev *dev)
 		snprintf(fn, sizeof(fn), "%s/smp_affinity", q->fn);
 		if(conf.memnode_dist) {
 			_cpu = jl_at(cpulist, i % nr_use_cpu);
-			cpu = _cpu->cpu;
+			if(_cpu)
+				cpu = _cpu->cpu;
+			else
+				cpu = 0;
 		} else
 			cpu = (i % nr_use_cpu) + cpu_offset;
 		snprintf(buf, sizeof(buf), "%llx", (uint64_t) 1 << cpu);
@@ -874,10 +882,12 @@ struct queue *queue_new(const char *name, int n, const char *fn)
 	if(conf.maxq && n >= conf.maxq) return NULL;
 
 	q = malloc(sizeof(struct queue));
-	q->fn = strdup(fn);
-	q->name = strdup(name);
-	q->n = n;
-	q->assigned_cpu = -1;
+	if(q) {
+		q->fn = strdup(fn);
+		q->name = strdup(name);
+		q->n = n;
+		q->assigned_cpu = -1;
+	}
 	return q;
 }
 
@@ -1061,6 +1071,7 @@ static int cpu_nodemap()
 		
 		n = read(fd, buf, sizeof(buf));
 		if(n > 0) {
+			char *tp;
 			buf[n] = 0;
 			/* parse buf: 0-3,8-11 */
 			intervals = jl_new();
@@ -1068,10 +1079,15 @@ static int cpu_nodemap()
 			jl_foreach(intervals, interval) {
 				cpus = jl_new();
 				jl_splitstr(cpus, interval, '-');
-				first = atoi(jl_head_first(cpus));
+				tp = jl_head_first(cpus);
+				first = 0;
+				if(tp) first = atoi(tp);
 				last = first;
-				if(cpus->len > 1)
-					last = atoi(jl_next(jl_head_first(cpus)));
+				if(cpus->len > 1) {
+					tp = jl_head_first(cpus);
+					if(tp) tp = jl_next(tp);
+					if(tp) last = atoi(tp);
+				}
 				for(i=first;i<=last;i++)
 					memnode->cpu[i] = 1;
 			}
