@@ -27,6 +27,7 @@
 struct cpu {
 	int node;
 	int cpu;
+	int iter;
 };
 
 struct memnode {
@@ -98,13 +99,14 @@ static struct jlhead *jl_splitstr(struct jlhead *l, const char *s, int delim)
 	return l;
 }
 
-static struct cpu *cpu_new(int n, int cpuid)
+static struct cpu *cpu_new(int n, int cpuid, int iter)
 {
 	struct cpu *cpu;
 	cpu = malloc(sizeof(struct cpu));
 	if(cpu) {
 		cpu->node = n;
 		cpu->cpu = cpuid;
+		cpu->iter = iter;
 	}
 	return cpu;
 }
@@ -129,20 +131,30 @@ static struct memnode *memnode_get(int n)
 static void memnode_cpus(const struct memnode *node, struct jlhead *l, int nselect, int cpu_offset)
 {
 	int i;
+	int iter=0;
+
+	if(conf.debug) printf("selecting %d cpus from node %d: ", nselect, node->n);
+
 	while(nselect > 0) {
-		for(i=cpu_offset;i<MAXCPU;i++)
+		for(i=cpu_offset;i<MAXCPU;i++) {
 			if(node->cpu[i]) {
-				jl_append(l, cpu_new(node->n, i));
+				jl_append(l, cpu_new(node->n, i, iter));
+				if(conf.debug) printf("%d ", i);
 				nselect--;
 			}
-
+			if(!nselect) break;
+		}
+		iter++;
+		
 		/* if we failed to add any cpu at all */
 		if(l->len == 0) {
+			if(conf.debug) printf("\n");
 			if(conf.debug) printf("memnode_cpus: no CPUs for node!\n");
-			jl_append(l, cpu_new(node->n, 0));
+			jl_append(l, cpu_new(node->n, 0, iter));
 			return;
 		}
 	}
+	if(conf.debug) printf("\n");
 	return;
 }
 
@@ -184,7 +196,9 @@ static struct cpu *cpu_pick(struct jlhead *cpulist, int cpu_offset)
 static int cpu_mem_cmp(const void *i1, const void *i2)
 {
 	const struct cpu *c1=i1, *c2=i2;
-	return c1->cpu - c2->cpu;
+	if(c1->iter == c2->iter)
+		return c1->cpu - c2->cpu;
+	return c1->iter - c2->iter;
 }
 
 /*
@@ -211,10 +225,18 @@ static struct jlhead *memnodes_cpu_select(int nselect, int cpu_offset)
 {
 	struct memnode *node;
 	struct jlhead *cl, *pl;
+	int cpuspernode, nselected=0;
+	
+	cpuspernode = nselect / conf.memnodes->len;
+	
 	cl = jl_new();
 	jl_foreach(conf.memnodes, node) {
-		memnode_cpus(node, cl, nselect, cpu_offset);
+		memnode_cpus(node, cl, cpuspernode, cpu_offset);
+		nselected += cpuspernode;
 	}
+	if(nselected < nselect)
+		memnode_cpus(jl_head_first(conf.memnodes), cl, nselected - nselect, cpu_offset);
+	
 	if(conf.debug) printf("memnode_cpu_select: cpulist generated\n");
 	pl = cpu_select(cl, nselect, cpu_offset);
 	if(conf.debug) printf("memnode_cpu_select: cpus selected\n");
