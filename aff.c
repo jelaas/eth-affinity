@@ -2,7 +2,7 @@
  * File: aff.c
  * Implements: CPU affinity setting of ethernet devices
  *
- * Copyright: Jens Låås, UU 2009, 2010
+ * Copyright: Jens LÃ¥Ã¥s, UU 2009, 2010
  * Copyright license: According to GPL, see file COPYING in this directory.
  *
  */
@@ -1434,7 +1434,7 @@ int main(int argc, char **argv)
 	
 	if(jelopt(argv, 'h', "help", NULL, NULL)) {
 		printf("eth-affinity [-hvqstlR] [-r #] [-m #]\n"
-		       " Version " VERSION " By Jens Låås, "
+		       " Version " VERSION " By Jens LÃ¥Ã¥s, "
 		       "UU 2009-2010.\n"
 		       " Sets CPU affinity for ethernet devices.\n"
 		       " Depends on information from sysfs and procfs.\n"
